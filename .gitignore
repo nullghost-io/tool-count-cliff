@@ -5,3 +5,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+captures/
+harness/results-*.jsonl
+harness/run-*.log
+harness/harness.done

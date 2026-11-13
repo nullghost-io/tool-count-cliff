@@ -2,26 +2,25 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage[margin=0.85in,columnsep=0.32in]{geometry}
+\usepackage[margin=0.8in,columnsep=0.3in]{geometry}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usetikzlibrary{arrows.meta,decorations.pathreplacing}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage[hidelinks]{hyperref}
 \usepackage{float}
 
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{0.55em}
+\setlength{\parskip}{0.4em}
 
-\definecolor{boxgreen}{RGB}{224,242,224}
-\definecolor{boxyellow}{RGB}{252,244,214}
-\definecolor{boxred}{RGB}{250,222,222}
-\definecolor{boxgray}{RGB}{238,238,235}
-\definecolor{lineblack}{RGB}{20,20,20}
 \definecolor{barsolid}{RGB}{25,25,25}
 \definecolor{bargray}{RGB}{143,143,137}
+\definecolor{nbblue}{RGB}{21,87,166}
+\definecolor{nbred}{RGB}{190,60,70}
 
-\title{\LARGE\bfseries The Tool Count Cliff:\\[2pt] A Small Model's Categorical Collapse Where Larger Models Merely Decay}
+\input{generated.tex}
+
+\title{\LARGE\bfseries The Cliff Was the Context Window\\[2pt]\large\mdseries A silent prompt truncation that looked like a tool-count limit}
 \author{
   {\large Ricardo Martínez}\\[2pt]
   {\small Cloud Security \& Applied AI}
@@ -34,94 +33,115 @@
     \maketitle
     \begin{abstract}
     \noindent
-    A 9.7B open-weight model, given a single synthetic tool, called it correctly every time and completed a full tool-result round trip. The identical model, same backend, same sampling settings, wired into a real agent's production toolset of over twenty tools, never attempted a real tool call again across repeated turns on two independent surfaces --- it wrote the shell command as prose instead of invoking it. Lowering sampling temperature fixed the isolated case outright and left the production case completely unchanged. Public benchmarks already document tool-count degradation in mid-size and frontier models as a gradual accuracy decline; this field case adds a small model's version of the same axis, which looks less like a decline and more like a step function. The practical consequence: certifying a model's tool-calling at one tool count says nothing reliable about a different tool count, and the gap is not always a slope.
+    A 9.7B open-weight model behind a local inference server passed a one-tool smoke test and then never called a single tool once it was connected to an agent with 24 tool schemas. Sweeping the number of tools made it look like a cliff between 8 and 16 tools. It was not. The agent's request weighed 14,095 tokens, the server's default window was 4,096, and the server cut the prompt to about 2,050 tokens without telling the client, dropping the front of the prompt, where the tool schemas sit. The request had asked for a 262,144-token window through an option the OpenAI-compatible endpoint did not honor. With the window raised to 32,768, the same request produced a correct call in 10 of 10 trials at default sampling, and the sweep was flat at 10 of 10 from 1 to 24 tools. Lowering the sampling temperature changed nothing in either window. A synthetic control confirms it: one tool with the prompt padded to the size of 24 tools fails, and succeeds, exactly where the 24-tool request does. Before concluding that a small model cannot use tools, read the effective context.
     \end{abstract}
     \vspace{1.2em}
   \end{@twocolumnfalse}
 ]
 
-\section{Two Measurements of the Same Model}
+\section{What happened}
 
-The first test is the one almost every agent build starts with: give the model one tool, a clear instruction to use it, and confirm it does. A 9.7B open-weight model passed this cleanly --- a correctly typed tool call, every time, followed by a clean reinjected tool-result round trip. By that test, the model is capable of tool-calling.
+An open-weight model (Qwen3.5 9B, Q4\_K\_M, 9.7B parameters) served by Ollama 0.33.2 on one machine with 17.8 GiB of VRAM was wired into an open-source agent framework through the OpenAI-compatible endpoint. Asked to run a script, the agent answered in prose: it wrote the command in a code block and described what it would do, without calling the terminal tool that was in its payload. A direct one-tool test with the same model passed.
 
-The second test used the identical model, the identical backend, the identical sampling settings, wired into a real personal-agent platform's actual deployed toolset: terminal access, file operations, web search, vision, image generation, speech, browser automation, skill loading, scheduled jobs, and messaging, composited into toolsets exceeding twenty individual tools. Across two independent entry surfaces --- a chat gateway and a direct command-line invocation --- the model answered in plain text every single time. Both surfaces' own request logs showed \texttt{api\_calls=1}: the model never even reached the tool-call turn a real invocation requires. It narrated a shell command as prose instead of calling the terminal tool that was sitting right there in its payload.
+Three explanations were plausible. The model is too small for tool use. The sampling defaults (temperature 1, presence penalty 1.5) make it improvise. Or 24 tools are too many for it. A variant with temperature 0.1 and no presence penalty did not change the agent's behavior.
 
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{@{}lll@{}}
-\toprule
-& \textbf{Isolated test} & \textbf{Production test} \\
-\midrule
-Tools offered & 1 (synthetic) & 20+ (real toolset) \\
-Tool call attempted & Yes, every turn & No, zero turns \\
-\texttt{api\_calls} & 2+ (real round trip) & 1 (text only) \\
-Surfaces tested & 1 & 2, independently \\
-\bottomrule
-\end{tabular}
-\caption{Same model, same backend, same sampling settings. The only variable that changed between the two columns is how many tools were in the payload.}
-\end{table}
+\section{Capturing the request}
 
-\section{The Temperature Hypothesis, Half Right}
-
-The deployment's default sampling parameters --- temperature 1.0, presence penalty 1.5 --- were the obvious first suspect. Those settings favor novel, high-entropy continuations, which is close to the opposite of what deterministic tool-calling needs: a model that reliably reproduces the exact structured call the schema asks for, not an original one.
-
-A low-temperature (0.1), zero-presence-penalty variant of the same model was built and tested directly against the model-serving API. It fixed the isolated case outright: a correctly typed tool call, verified end to end through a full reinjected-result round trip, with no ambiguity about whether it was a fluke. Wired into the identical production toolset under the identical low-temperature variant, on both of the same two independent surfaces, the model still never attempted a single tool call.
-
-The hypothesis was not wrong. It was incomplete. Sampling settings mattered enormously for the one-tool case and explained none of the production case. Whatever gates tool-calling once the toolset grows past some threshold, it is not primarily a sampling problem for this model.
-
-\section{What the Public Literature Already Shows}
-
-Tool-count degradation in LLM agents is a documented phenomenon, reported unevenly across model sizes and benchmark designs:
-
-\begin{itemize}
-\item LangChain's ReAct benchmark found accuracy held for \texttt{o1} but fell sharply for \texttt{o3-mini} and to near zero for \texttt{GPT-4o} once domain count passed roughly seven, as reported in StackOne's tool-count-ceiling analysis.
-\item Maxim AI's evaluation of five models across GitHub and Notion tool sets found that cutting available tools from 48 to 25 improved accuracy for every model tested, including Claude Sonnet 4 (66.67\% to 73.33\%).
-\item Anthropic's own reporting on its Tool Search Tool shows Claude Opus 4.5 moving from 79.5\% to 88.1\% on an internal benchmark once tools are discovered on demand rather than all declared up front --- a vendor figure, on the vendor's own benchmark.
-\item TSCG (May 2026) reports restoring Phi-4 14B from 0\% to 84.4\% accuracy at 20 tools through schema compilation: a mid-size model hitting a wall at a comparable tool count to the one measured here for a smaller model.
-\end{itemize}
-
-A practitioner analysis of this body of work states the gap plainly: no public benchmark cleanly publishes the size-decay axis --- hold the model fixed, vary tool count, plot accuracy. Most published comparisons hold tool count fixed and vary the model, or hold the model fixed and compare exactly two tool counts chosen to support a specific product claim, not a curve across sizes.
-
-\section{What a Cliff Looks Like, Not a Slope}
-
-The benchmarks above describe decay: accuracy drops as tool count rises, but for models capable of tool-calling at all, it rarely reaches zero. The 9.7B model measured here did not decay between the two tested points --- it was reliable at one and made zero real tool calls at the other, under two sampling regimes and two independent surfaces.
+We pointed the framework at a local proxy that records each request body and answers with fixed text, so nothing was executed. The request carried 24 tool schemas, an 18,536-character system prompt, a 20-token user message and \texttt{options.num\_ctx = 262144}. Counted on a server whose window is large enough to avoid truncation, it weighed 14,095 tokens: 9,686 for the tools, 4,372 for the agent's instructions, 20 for the message and 17 of chat template (Figure~\ref{fig:bar}).
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[scale=0.82]
-\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (6.6,0) node[right,font=\scriptsize] {tool count};
-\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (0,3.4) node[above,font=\scriptsize] {real tool calls made};
-\draw[barsolid, line width=1.1pt] (0.1,2.9) .. controls (2.0,2.75) and (3.2,2.0) .. (4.1,0.55);
-\draw[barsolid, line width=1.1pt] (4.1,0.55) .. controls (4.9,0.15) and (5.6,0.05) .. (6.4,0.02);
-\node[font=\scriptsize] at (2.1,3.15) {typical frontier/mid-size decay};
-\draw[bargray, line width=1.4pt] (0.1,2.9) -- (2.2,2.9);
-\draw[bargray, line width=1.4pt] (2.2,2.9) -- (2.2,0.05);
-\draw[bargray, line width=1.4pt] (2.2,0.05) -- (6.4,0.05);
-\node[font=\scriptsize, text=bargray] at (4.6,2.65) {small model, this field case};
-\node[font=\scriptsize] at (2.2,-0.32) {isolated (1 tool)};
-\node[font=\scriptsize] at (6.0,-0.32) {production (20+ tools)};
+\begin{tikzpicture}[x=0.00046cm,y=1cm]
+\def\h{0.62}
+\fill[nbblue!85] (0,0) rectangle (9686,\h);
+\fill[nbblue!45] (9686,0) rectangle (14058,\h);
+\fill[nbblue!85] (14058,0) rectangle (14095,\h);
+\fill[nbred!25] (0,-0.62) rectangle (12045,-0.35);
+\fill[nbblue!25] (12045,-0.62) rectangle (14095,-0.35);
+\node[font=\scriptsize,text=white] at (4843,\h/2) {24 tool schemas: 9,686};
+\node[font=\tiny] at (11872,\h/2) {instr. 4,372};
+\node[font=\scriptsize,text=nbred,anchor=north] at (6022,-0.68) {dropped by the server: 12,045};
+\node[font=\scriptsize,text=nbblue,anchor=north east] at (14095,-0.68) {kept: 2,050};
+\draw[decorate,decoration={brace,amplitude=3pt}] (0,\h+0.08) -- (14095,\h+0.08) node[midway,above=3pt,font=\scriptsize] {request: 14,095 tokens};
 \end{tikzpicture}
-\caption{Illustrative, not measured on a continuous axis: the documented frontier/mid-size pattern is a decline across the curve; the two points measured for the small model in this case are a step, not a slope.}
+\caption{The captured request at the default window of 4,096 tokens (to scale). The server keeps the first few tokens and the tail, and the tool schemas sit at the front.}
+\label{fig:bar}
 \end{figure}
 
-This distinction matters for anyone deciding how much weight to put on a passed smoke test. A gradual decay can be budgeted for --- route the hardest calls to a bigger model, trim the toolset, accept a known error rate. A categorical stop cannot be budgeted the same way: past whatever threshold triggers it, the small model is not "somewhat less reliable," it is not participating in the tool-calling contract at all, silently, with no error raised anywhere.
+\section{Replaying it}
 
-\section{Design Principle}
+We replayed the captured request against the same model, ten trials per condition (Table~\ref{tab:field}).
 
-Certify a model's tool-calling capability at the tool count it will actually run with in production, not at whatever count is cheapest to write a smoke test for. A pass at $N{=}1$ is evidence about $N{=}1$. It is not evidence about $N{=}20$, and for a small model, the two can be categorically different outcomes rather than nearby points on a curve.
+\fieldtable
 
-The minimal pattern in \texttt{patterns/01\_isolated\_vs\_production\_toolset.py} makes this concrete: a certification routine that only accepts a model as tool-capable if it demonstrates that capability at the real deployment's tool count, with intermediate probe sizes recorded so a cliff --- unlike a decay --- is visible as soon as it appears, not discovered later in production.
+At the server's default window of 4,096 tokens the model made no correct call in 20 of 20 trials, under default and low-temperature sampling. At 32,768 it made one in 10 of 10 and 9 of 10 (the one miss called a different tool). The one-tool request passed in all four conditions, including default sampling, so the earlier impression that lowering the temperature rescued it did not reproduce under repeated trials.
 
-\section*{Methodological Note}
+The server explains the difference. At 4,096 it logged \texttt{truncating input prompt} with a limit of 2,050 for a 14,095-token prompt, 50 times during the run, and none at 32,768. The response carried no error, and its usage field reported 2,050 prompt tokens.
 
-This is a single field case, not a controlled study across multiple models or tool sets. The two tool counts, the sampling settings, and the \texttt{api\_calls} figures cited are real measurements from the same system across two independent entry surfaces, not simulated. No causal claim is made about mechanism --- attention dilution, instruction dilution from a longer system prompt, or something specific to this model family --- only that the isolated-tool-count test and the production-tool-count test produced categorically different results for the same model under the same settings.
+A probe shows what survived. At 4,096, asked to repeat two markers placed at the start and at the end of the system message, the model reported not seeing the first and read the second; asked to list its tools, it listed skill names that live in the system prompt, not the functions. At 32,768 it read both markers and listed all 24 function names. The model's chat template appears to place the tool block before the system text (we did not print the rendered prompt), which fits the probe: the cut removes the beginning, so the schemas go first.
 
-\begin{thebibliography}{9}
-\bibitem{stackone} StackOne. \textit{The Agent Tool Count Ceiling}. stackone.com/blog/agent-tool-count-ceiling.
-\bibitem{maxim} Maxim AI. \textit{Tool Chaos No More: How We're Measuring Model-Tool Accuracy in the Age of MCP}. getmaxim.ai/blog.
-\bibitem{tscg} BenchmarkList. \textit{TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments}. benchmarklist.com.
-\bibitem{hackernoon} HackerNoon. \textit{AI Agents Pick the Wrong Tool More Often as You Add Tools, and Research Shows Why}. hackernoon.com.
-\end{thebibliography}
+\section{It looks like a tool-count cliff}
+
+Figure~\ref{fig:sweep} sweeps the number of tools with a short system prompt, using subsets of the 24 real schemas.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=0.95cm,y=0.27cm]
+\fill[bargray!14] (3.5,0) rectangle (5.55,10.4);
+\node[font=\tiny,text=bargray!70!black,align=center] at (4.5,6.6) {prompt larger\\than the window};
+\draw[-{Latex[length=1.6mm]},line width=0.4pt] (-0.3,0) -- (5.7,0);
+\draw[-{Latex[length=1.6mm]},line width=0.4pt] (-0.3,0) -- (-0.3,11);
+\foreach \i/\k in {0/1,1/2,2/4,3/8,4/16,5/24} {\node[font=\scriptsize] at (\i,-0.8) {\k};}
+\foreach \y in {0,5,10} {\node[font=\scriptsize,anchor=east] at (-0.4,\y) {\y};}
+\node[font=\scriptsize] at (2.7,-2.1) {tools offered};
+\node[font=\scriptsize,rotate=90] at (-1.25,5) {correct calls of 10};
+\sweepBig
+\sweepSmall
+\node[font=\scriptsize,text=nbblue,anchor=west] at (0.05,10.95) {window 32,768};
+\node[font=\scriptsize,text=barsolid,anchor=north west] at (3.55,1.25) {window 4,096};
+\end{tikzpicture}
+\caption{Correct calls out of 10 at each tool count, same model, same subsets, same prompts. Only the server window changes. At 4,096 the curve falls between 8 and 16 tools, where the prompt starts to exceed the window; at 32,768 it is flat.}
+\label{fig:sweep}
+\end{figure}
+
+A reader who stopped at the dark curve would have reported a tool-count cliff. The blue curve is the same experiment with one setting changed.
+
+\section{Control: tools versus size}
+
+The sweep above changes the tool count and the prompt size together. To separate them, a public harness with no private data builds synthetic tools of realistic size (about 420 tokens each) and compares two arms at the same total number of tokens. Arm A offers $k$ tools with a short system prompt. Arm B offers one tool and pads the system prompt with neutral text up to the size of arm A (Table~\ref{tab:control}).
+
+At 4,096 the two arms behave the same: 10 of 10 while the prompt fits (up to 3,243 tokens) and 0 of 10 once it does not (6,594 and 9,943 tokens, clipped to 2,050). In those failing cells the model wrote the command as text in 34 of 40 trials and made a tool call in only 2 of 40, neither correct. At 32,768 all cells are 10 of 10. One tool is as vulnerable as 24 once the prompt outgrows the window, and 24 tools are as safe as one while it does not. What matters is the size of the prompt against the window; the tools only matter by being large.
+
+\controltable
+
+\section{Mechanism and fix}
+
+Ollama's documentation gives default context lengths by VRAM (4k below 24 GiB) and states that the OpenAI API has no way of setting the context size for a model, so it recommends a Modelfile with \texttt{PARAMETER num\_ctx} \cite{ollama-ctx,ollama-openai}. Our server logged a 4,096 window for a request that carried \texttt{num\_ctx = 262144} in \texttt{options}. A Modelfile variant with \texttt{num\_ctx 32768} on an otherwise default server returned a correct call in 5 of 5 trials with no truncation warnings. The documentation recommends at least 64,000 tokens for agents; this payload alone takes 14,095 before any conversation.
+
+\section{What to check first}
+
+\begin{itemize}
+\item Compare \texttt{usage.prompt\_tokens} in the response with what you sent. At 4,096 the server reported 2,050 for a 14,095-token request and raised no error.
+\item Search the server log for \texttt{truncating input prompt}, and read the \texttt{CONTEXT} column of \texttt{ollama ps}.
+\item When going through \texttt{/v1}, set the window in the model (Modelfile), not in request options.
+\item Certify tool use with the production payload, not with the smoke test. A pass at one tool is evidence about one tool.
+\end{itemize}
+
+\section{Related work}
+
+Tool-count degradation is documented. In LangChain's ReAct benchmark, GPT-4o fell to 2\% on calendar scheduling at seven domains and Llama-3.3-70B failed to call a required tool in every case \cite{langchain}. Maxim AI reports that cutting a GitHub and Notion toolset from 48 to 25 tools improved four of five models, with Claude Sonnet 4 moving from 66.67\% to 73.33\% \cite{maxim}. Anthropic reports Claude Opus 4.5 moving from 79.5\% to 88.1\% on an internal MCP evaluation when tools are discovered on demand, a vendor figure \cite{anthropic}. A May 2026 preprint reports Phi-4 14B restored from 0\% to 84.4\% at 20 tools by compiling schemas, on the author's own benchmark \cite{tscg}. Those studies measure selection under growing context. Our case is a different mechanism: the tools never reached the model. We did not check whether any cited run suffered truncation; reporting the effective window would let readers tell.
+
+\section*{Limits}
+
+One model (Qwen3.5 9B, Q4\_K\_M), one server version (Ollama 0.33.2), one machine, one task (run one shell command), ten trials per cell. In the control, the padding precedes the instruction and we did not test padding after it; the synthetic tools are generic and the target tool sits at two thirds of the list. With ten trials, 0 of 10 and 10 of 10 are separable (exact 95\% intervals 0--31\% and 69--100\%), small differences are not. Reasoning effort was medium, as in the captured request. We did not record the original server configuration on the day of the failure: the replay reproduces the same prose answers at the default window, which is consistent with, but does not prove, that the original runs were truncated the same way. The two Ollama pages disagree on the default (VRAM-dependent versus 4,096); our server logged 4,096 at 17.8 GiB. An earlier version of this repository called this a tool-count cliff and a categorical collapse of small models. That claim was wrong, and these measurements replace it.
+
+{\small\setlength{\itemsep}{0pt}\begin{thebibliography}{9}
+\bibitem{langchain} LangChain. \textit{Benchmarking Single Agent Performance}. February 10, 2025. blog.langchain.com/react-agent-benchmarking.
+\bibitem{maxim} Maxim AI. \textit{How We're Measuring Model-Tool Accuracy in the Age of MCP}. July 2025. getmaxim.ai/blog.
+\bibitem{anthropic} Anthropic. \textit{Introducing advanced tool use on the Claude Developer Platform}. November 24, 2025. anthropic.com/engineering/advanced-tool-use.
+\bibitem{tscg} F. Sakizli. \textit{TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments}. arXiv:2605.04107, May 2026.
+\bibitem{ollama-ctx} Ollama. \textit{Context length}. docs.ollama.com/context-length.
+\bibitem{ollama-openai} Ollama. \textit{OpenAI compatibility}. docs.ollama.com/api/openai-compatibility.
+\end{thebibliography}}
 
 \end{document}

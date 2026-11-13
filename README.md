@@ -1,156 +1,94 @@
-# The Tool Count Cliff
+# The Cliff Was the Context Window
 
-A field note on why testing a model's tool-calling with one tool in the
-payload tells you almost nothing about whether it will call tools at all
-once it is wired into a real agent with its real toolset.
+A 9.7B open-weight model behind a local inference server passed a one-tool smoke test and then never called a tool once it was connected to an agent with 24 tool schemas. Sweeping the number of tools made it look like a cliff between 8 and 16 tools. It was a silent prompt truncation: the request weighed 14,095 tokens, the server's default window was 4,096, and the server cut the prompt to about 2,050 tokens without telling the client, dropping the front of the prompt, where the tool schemas sit.
 
-This is not a product release and not a tool. It's a field observation:
-what actually happened measuring the same model, same backend, same
-settings, at two different tool counts, plus a reading of what the public
-benchmarks on this already show (and the gap in them). No product or
-platform name from the original system is included anywhere in this repo —
-the value here is the measurement and the principle, not the implementation
-it came from.
+- Paper (EN): [paper/en/The_Cliff_Was_the_Context_Window.pdf](paper/en/The_Cliff_Was_the_Context_Window.pdf) · [LaTeX](paper/en/paper_en.tex)
+- Paper (ES): [paper/es/El_Precipicio_Era_La_Ventana.pdf](paper/es/El_Precipicio_Era_La_Ventana.pdf) · [fuente LaTeX](paper/es/paper_es.tex)
 
-## The paper
+## Results
 
-- 📄 [English (PDF)](paper/en/Tool_Count_Cliff.pdf) · [LaTeX source](paper/en/paper_en.tex)
-- 📄 [Español (PDF)](paper/es/El_Precipicio_De_Herramientas.pdf) · [fuente LaTeX](paper/es/paper_es.tex)
+Qwen3.5 9B (Q4_K_M), Ollama 0.33.2, ten trials per cell. "Correct" means a call to the right tool with the right command. Exact 95% intervals: 0 of 10 is 0 to 31%, 10 of 10 is 69 to 100%.
 
-**Abstract.** A 9.7B open-weight model, given a single synthetic tool and a
-direct instruction to use it, called it correctly and completed a full
-tool-result round trip without exception. The same model, same backend,
-same sampling settings, wired into a real personal-agent platform's
-production toolset (over twenty tools across terminal, file, web, and
-messaging capabilities), never attempted a real tool call again across
-repeated turns, in two independent surfaces — it wrote the shell command as
-prose instead of invoking it. Lowering sampling temperature, the first and
-most obvious hypothesis, fixed the isolated case and left the production
-case unchanged: the first diagnosis was real but incomplete. Public
-benchmarks already document tool-count degradation in mid-size and frontier
-models as a gradual accuracy decline; what this field case adds is a small
-model's version of the same axis, which looks less like a decline and more
-like a cliff — a categorical stop, not a lower score.
+| Experiment | Window 4,096 | Window 32,768 |
+|---|---|---|
+| Real agent request (24 tools, 14,095 tokens), default sampling | 0/10 | 10/10 |
+| Same request, temperature 0.1, presence penalty 0 | 0/10 | 9/10 |
+| One tool, short prompt (1,317 tokens) | 10/10 | 10/10 |
+| Sweep, 1 to 24 real tool schemas, short prompt | 10, 9, 10, 9, 2, 2 of 10 | 10 of 10 at every point |
+| Synthetic control, 1 tool padded to 6,594 and 9,943 tokens | 0/10, 0/10 | 10/10, 10/10 |
+| Synthetic control, 16 and 24 tools at the same sizes | 0/10, 0/10 | 10/10, 10/10 |
 
-## What was measured
+What the data say:
 
-1. **Isolated test.** One model, one synthetic tool (`get_weather`), one
-   direct system instruction to use it. Called correctly, every time, and
-   completed a reinjected tool-result round trip cleanly — the model is not
-   incapable of tool-calling in the abstract.
-2. **Production test.** The identical model and backend, same sampling
-   settings, wired into a real agent's actual deployed toolset (terminal,
-   file, web, vision, image generation, speech, browser automation, skill
-   loading, scheduled jobs, messaging — composited toolsets exceeding
-   twenty individual tools). Across two independent entry surfaces (a chat
-   gateway and a direct CLI invocation), the model answered in plain text
-   every time: `api_calls=1` in both surfaces' own request logs, meaning it
-   never even attempted the tool-call turn a real invocation requires.
-3. **The temperature hypothesis, tested and only half right.** The
-   deployment's default sampling parameters (temperature 1.0, presence
-   penalty 1.5) looked like the obvious culprit — those values favor novel,
-   "creative" continuations over literal instruction-following, which is
-   exactly backwards for deterministic tool-calling. A low-temperature
-   (0.1), zero-presence-penalty variant of the same model fixed the
-   isolated case outright and was verified end to end: a real tool call,
-   with correctly typed arguments, followed by a clean reinjected-result
-   round trip. Wired into the same production toolset, under the identical
-   low-temperature variant, the model still never attempted a tool call —
-   reproduced on both of the same two independent surfaces. Sampling
-   mattered for the single-tool case and did not explain the production
-   case at all.
+- The server logged `truncating input prompt` (limit 2,050, prompt 14,095) 50 times at 4,096 and never at 32,768. The response carried no error, and `usage.prompt_tokens` reported 2,050.
+- A probe at 4,096 showed the model could not see a marker placed at the start of the system message and listed skill names instead of its tool functions. At 32,768 it saw both markers and all 24 function names.
+- The failure follows prompt size against the window, not tool count: one tool padded to the size of 24 fails and succeeds exactly where the 24-tool request does.
+- Lowering the sampling temperature changed nothing in either window.
+- A Modelfile variant with `PARAMETER num_ctx 32768` on an otherwise default server gave a correct call in 5 of 5 trials with no truncation warnings.
 
-## What the public literature already shows
+Full tables: [results/field_replay_summary.md](results/field_replay_summary.md), [results/control_summary.md](results/control_summary.md). Raw data: [results/field_replay_raw.csv](results/field_replay_raw.csv), [results/control_raw.jsonl](results/control_raw.jsonl). Token breakdown of the real request: [results/tokens_breakdown.json](results/tokens_breakdown.json) (tools 9,686, agent instructions 4,372, user message 20, chat template 17).
 
-Tool-count degradation in LLM agents is a documented, if unevenly measured,
-phenomenon:
+## What to check first
 
-- LangChain's ReAct benchmark found accuracy held for `o1` but fell sharply
-  for `o3-mini` and to near zero for `GPT-4o` once domain count passed
-  roughly seven (reported via StackOne's tool-count-ceiling analysis).
-- Maxim's evaluation of five models across GitHub and Notion tool sets
-  found that cutting the available tool count from 48 to 25 improved
-  accuracy for every model tested, including Claude Sonnet 4 (66.67% to
-  73.33%).
-- Anthropic's own reporting on its Tool Search Tool shows Claude Opus 4.5
-  moving from 79.5% to 88.1% on an internal benchmark once tools are
-  discovered on demand instead of all declared up front (vendor-reported,
-  on the vendor's own benchmark).
-- TSCG (May 2026) reports restoring Phi-4 14B from 0% to 84.4% accuracy at
-  20 tools through schema compilation — a mid-size model hitting the same
-  kind of wall a 9.7B model hit here, at a comparable tool count.
-- A practitioner analysis of this literature states the gap plainly: no
-  public benchmark cleanly publishes the size-decay axis — hold the model
-  fixed, vary tool count, plot accuracy. Most published numbers compare
-  different models at one tool count, or one model at two tool counts
-  chosen for a specific product claim, not a curve.
+1. Compare `usage.prompt_tokens` in the response with what you sent.
+2. Search the server log for `truncating input prompt`, and read the `CONTEXT` column of `ollama ps`.
+3. When going through the OpenAI-compatible `/v1` endpoint, set the window in the model (Modelfile), not in request options. Ollama's docs say that API has no way to set the context size.
+4. Certify tool use with the production payload, not with the smoke test.
 
-## What this field case adds
+## Reproduce
 
-The benchmarks above describe *decay* — accuracy drops as tool count rises,
-but it rarely reaches zero for a model that could use tools at all. The
-9.7B model measured here did not decay. At the isolated tool count it was
-reliable; at the production tool count it made zero real tool calls across
-every turn observed, on two independent surfaces, under two different
-sampling regimes. That is closer to a step function than a slope, and it
-is a data point the practitioner-identified gap above does not yet have:
-what the same-model, fixed-settings, varied-tool-count curve looks like for
-a small open-weight model rather than a frontier or mid-size one.
-
-## The pattern
-
-[`patterns/01_isolated_vs_production_toolset.py`](patterns/01_isolated_vs_production_toolset.py)
-is a minimal, runnable illustration of the engineering fix: certify a
-model's tool-calling against the actual tool count it will run with in
-production, not against whatever count was cheapest to write a smoke test
-for. Written from scratch for this repo, no dependencies beyond the
-standard library.
+The harness uses only the Python standard library and a synthetic toolset, so it needs no private data.
 
 ```bash
-python3 patterns/01_isolated_vs_production_toolset.py
+printf 'FROM qwen3.5:9b\nPARAMETER num_ctx 32768\n' > Modelfile
+ollama create ctx32k -f Modelfile
+python3 harness/ctx_cliff.py --model qwen3.5:9b --calib-model ctx32k --label ctx4096
+python3 harness/ctx_cliff.py --model ctx32k --calib-model ctx32k --label ctx32768
 ```
 
-## Methodological note
+The first run uses whatever window your server defaults to (it depends on VRAM; 4,096 on the machine used here), so check `ollama ps`. To capture a request from your own agent, run `python3 harness/capture_proxy.py 18434` and point the agent's base URL to `http://127.0.0.1:18434/v1`. The captures contain the agent's full prompt, so do not publish them. Tables for the paper are generated with `python3 results/build_tables.py`.
 
-This is a single field case, not a controlled study across multiple models
-or tool sets. The two tool counts, the sampling settings, and the
-`api_calls` figures cited are real measurements from the same system across
-two independent entry surfaces, not simulated. No causal claim is made
-about mechanism (attention dilution, instruction dilution from a longer
-system prompt, or something else) — only that the isolated-tool-count test
-and the production-tool-count test produced categorically different
-results for the same model under the same settings, and that this should
-make anyone certifying a small model's tool-calling capability test it at
-the tool count it will actually run with.
+## What is not here
+
+The captured request itself, the agent's instructions and the model's response texts are not published: they contain private configuration. The tables and token counts come from them. The agent framework is not named; the measurement does not depend on it.
+
+## Limits
+
+One model, one server version, one machine (17.8 GiB of VRAM), one task (run one shell command), ten trials per cell, reasoning effort medium. The original server configuration on the day of the failure was not recorded: the replay reproduces the same prose answers at the default window, which is consistent with the original runs being truncated the same way but does not prove it.
+
+## Correction
+
+An earlier version of this repository, titled "The Tool Count Cliff", claimed a categorical collapse of small models past some number of tools and cited a gap in the public literature. Those claims were wrong. Tool count did not matter once the prompt fit the window, and the cited literature gap was not supported by the source it was attributed to. The measurements here replace that version.
 
 ## References
 
-- StackOne. [The Agent Tool Count Ceiling](https://www.stackone.com/blog/agent-tool-count-ceiling/).
-- Maxim AI. [Tool Chaos No More: How We're Measuring Model-Tool Accuracy in the Age of MCP](https://www.getmaxim.ai/blog/tool-chaos-no-more-how-were-measuring-model-tool-accuracy-in-the-age-of-mcp/).
-- BenchmarkList. [TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments](https://benchmarklist.com/benchmarks/tscg_deterministic_tool_schema_compilation_for_agentic_llm_deployments/).
-- HackerNoon. [AI Agents Pick the Wrong Tool More Often as You Add Tools, and Research Shows Why](https://hackernoon.com/ai-agents-pick-the-wrong-tool-more-often-as-you-add-tools-and-research-shows-why).
+- LangChain. [Benchmarking Single Agent Performance](https://blog.langchain.com/react-agent-benchmarking). February 10, 2025.
+- Maxim AI. [How We're Measuring Model-Tool Accuracy in the Age of MCP](https://www.getmaxim.ai/blog/tool-chaos-no-more-how-were-measuring-model-tool-accuracy-in-the-age-of-mcp/). July 2025.
+- Anthropic. [Introducing advanced tool use on the Claude Developer Platform](https://www.anthropic.com/engineering/advanced-tool-use). November 24, 2025.
+- F. Sakizli. [TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments](https://arxiv.org/abs/2605.04107). arXiv:2605.04107, May 2026.
+- Ollama. [Context length](https://docs.ollama.com/context-length) and [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility).
 
 ---
 
-# El precipicio de herramientas *(ES)*
+# El precipicio era la ventana de contexto *(ES)*
 
-Una nota de campo sobre por qué probar el tool-calling de un modelo con una
-sola herramienta en el payload casi no dice nada sobre si ese modelo va a
-llamar herramientas cuando se conecte a un agente real con su catálogo
-completo de herramientas.
+Un modelo de pesos abiertos de 9.7B, detrás de un servidor de inferencia local, pasó una prueba de humo con una herramienta y después no llamó ninguna al conectarlo a un agente con 24 esquemas. Al barrer el número de herramientas pareció haber un precipicio entre 8 y 16. Era un recorte silencioso del prompt: la petición pesaba 14,095 tokens, la ventana por defecto del servidor era de 4,096, y el servidor recortó el prompt a unos 2,050 tokens sin avisarle al cliente, descartando el inicio, que es donde van los esquemas de las herramientas.
 
-Esto no es el lanzamiento de un producto ni una herramienta. Es una
-observación de campo: lo que realmente pasó al medir el mismo modelo, el
-mismo backend, los mismos parámetros, en dos conteos de herramientas
-distintos, más una lectura de lo que ya muestran los benchmarks públicos
-sobre esto (y el hueco que dejan). Ningún nombre de producto o plataforma
-del sistema original aparece en este repo — lo que vale aquí es la medición
-y el principio, no la implementación de la que salió.
+El paper completo está en `paper/es/` (PDF y fuente LaTeX). Resultados:
 
-El paper completo está en `paper/es/` (PDF + fuente LaTeX). El patrón de
-código en `patterns/` es el mismo de arriba, aplicable sin importar el
-idioma.
+| Experimento | Ventana 4,096 | Ventana 32,768 |
+|---|---|---|
+| Petición real del agente (24 herramientas, 14,095 tokens), muestreo por defecto | 0/10 | 10/10 |
+| Misma petición, temperatura 0.1, sin penalización de presencia | 0/10 | 9/10 |
+| Una herramienta, prompt corto (1,317 tokens) | 10/10 | 10/10 |
+| Barrido de 1 a 24 esquemas reales, prompt corto | 10, 9, 10, 9, 2, 2 de 10 | 10 de 10 en todos |
+| Control sintético, 1 herramienta con relleno a 6,594 y 9,943 tokens | 0/10, 0/10 | 10/10, 10/10 |
+| Control sintético, 16 y 24 herramientas con esos tamaños | 0/10, 0/10 | 10/10, 10/10 |
+
+Qué revisar primero: compara `usage.prompt_tokens` con lo que enviaste, busca `truncating input prompt` en el log del servidor, lee la columna `CONTEXT` de `ollama ps`, y si pasas por `/v1` fija la ventana en el Modelfile (`PARAMETER num_ctx`), no en las opciones de la petición. Certifica el uso de herramientas con la carga de producción, no con la prueba de humo.
+
+Cómo reproducirlo, qué no se publica (la petición capturada y los textos de respuesta, por contener configuración privada), los límites y la corrección de la versión anterior están en la sección en inglés de arriba.
 
 ## Licencia
 
-MIT — ver [LICENSE](LICENSE).
+MIT, ver [LICENSE](LICENSE).

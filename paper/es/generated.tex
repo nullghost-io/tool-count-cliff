@@ -1,0 +1,19 @@
+\newcommand{\sweepSmall}{\draw[line width=1.2pt,color=barsolid] (0,10) -- (1,9) -- (2,10) -- (3,9) -- (4,2) -- (5,2);\fill[barsolid] (0,10) circle (2.4pt);\fill[barsolid] (1,9) circle (2.4pt);\fill[barsolid] (2,10) circle (2.4pt);\fill[barsolid] (3,9) circle (2.4pt);\fill[barsolid] (4,2) circle (2.4pt);\fill[barsolid] (5,2) circle (2.4pt);}
+\newcommand{\sweepBig}{\draw[line width=1.2pt,color=nbblue] (0,10) -- (1,10) -- (2,10) -- (3,10) -- (4,10) -- (5,10);\fill[nbblue] (0,10) circle (2.4pt);\fill[nbblue] (1,10) circle (2.4pt);\fill[nbblue] (2,10) circle (2.4pt);\fill[nbblue] (3,10) circle (2.4pt);\fill[nbblue] (4,10) circle (2.4pt);\fill[nbblue] (5,10) circle (2.4pt);}
+\newcommand{\fieldtable}{\begin{table}[H]\centering\footnotesize\setlength{\tabcolsep}{3.5pt}\begin{tabular}{@{}llrrrr@{}}\toprule Ventana & Muestreo & Herramientas & Tokens & Correctas & IC 95\% \\\midrule
+4,096 & por defecto & 24 & 2,050 & 0/10 & 0--31\% \\
+4,096 & temp. baja & 24 & 2,050 & 0/10 & 0--31\% \\
+4,096 & por defecto & 1 & 1,317 & 10/10 & 69--100\% \\
+4,096 & temp. baja & 1 & 1,317 & 10/10 & 69--100\% \\
+\midrule
+32,768 & por defecto & 24 & 14,095 & 10/10 & 69--100\% \\
+32,768 & temp. baja & 24 & 14,095 & 9/10 & 55--100\% \\
+32,768 & por defecto & 1 & 1,317 & 10/10 & 69--100\% \\
+32,768 & temp. baja & 1 & 1,317 & 10/10 & 69--100\% \\
+\bottomrule\end{tabular}\caption{Mismo modelo, misma petición, dos ventanas del servidor. “Llamada correcta” = llamada a la herramienta correcta con el comando correcto.}\label{tab:field}\end{table}}
+\newcommand{\controltable}{\begin{table}[H]\centering\footnotesize\setlength{\tabcolsep}{3.5pt}\begin{tabular}{@{}rrrrrr@{}}\toprule Herram. & Tokens & A, 4,096 & B, 4,096 & A, 32,768 & B, 32,768 \\\midrule
+4 & 1,566 & 10/10 & 10/10 & 10/10 & 10/10 \\
+8 & 3,243 & 10/10 & 10/10 & 10/10 & 10/10 \\
+16 & 6,594 & 0/10 & 0/10 & 10/10 & 10/10 \\
+24 & 9,943 & 0/10 & 0/10 & 10/10 & 10/10 \\
+\bottomrule\end{tabular}\caption{Control sintético con el mismo total de tokens. A: $k$ herramientas. B: una herramienta, prompt de sistema alargado al tamaño de A. Llamadas correctas de 10.}\label{tab:control}\end{table}}

@@ -2,26 +2,26 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage[margin=0.85in,columnsep=0.32in]{geometry}
+\usepackage[margin=0.8in,columnsep=0.3in]{geometry}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usetikzlibrary{arrows.meta,decorations.pathreplacing}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage[hidelinks]{hyperref}
 \usepackage{float}
 
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{0.55em}
+\setlength{\parskip}{0.4em}
 
-\definecolor{boxgreen}{RGB}{224,242,224}
-\definecolor{boxyellow}{RGB}{252,244,214}
-\definecolor{boxred}{RGB}{250,222,222}
-\definecolor{boxgray}{RGB}{238,238,235}
-\definecolor{lineblack}{RGB}{20,20,20}
 \definecolor{barsolid}{RGB}{25,25,25}
 \definecolor{bargray}{RGB}{143,143,137}
+\definecolor{nbblue}{RGB}{21,87,166}
+\definecolor{nbred}{RGB}{190,60,70}
 
-\title{\LARGE\bfseries El precipicio de herramientas:\\[2pt] El colapso categórico de un modelo pequeño donde los modelos grandes solo degradan}
+\renewcommand{\tablename}{Tabla}\renewcommand{\figurename}{Figura}\renewcommand{\refname}{Referencias}\renewcommand{\abstractname}{Resumen}
+\input{generated.tex}
+
+\title{\LARGE\bfseries El precipicio era la ventana de contexto\\[2pt]\large\mdseries Un recorte silencioso del prompt que parecía un límite de herramientas}
 \author{
   {\large Ricardo Martínez}\\[2pt]
   {\small Cloud Security \& Applied AI}
@@ -34,94 +34,115 @@
     \maketitle
     \begin{abstract}
     \noindent
-    Un modelo de pesos abiertos de 9.7B, con una sola herramienta sintética, la llamó correctamente cada vez y completó un ciclo completo de reinyección de resultado. El mismo modelo, mismo backend, mismos parámetros de muestreo, conectado al catálogo de herramientas de producción de un agente real (más de veinte herramientas), nunca volvió a intentar una llamada real a lo largo de múltiples turnos en dos superficies independientes --- escribió el comando de shell como prosa en vez de invocarlo. Bajar la temperatura de muestreo arregló por completo el caso aislado y dejó intacto el caso de producción. Los benchmarks públicos ya documentan degradación por conteo de herramientas en modelos medianos y de frontera como una caída gradual de precisión; lo que este caso de campo aporta es la versión de un modelo pequeño del mismo eje, que se parece menos a una caída y más a una función escalón. La consecuencia práctica: certificar el tool-calling de un modelo con un solo conteo de herramientas no dice nada confiable sobre otro conteo, y la brecha no siempre es una pendiente.
+    Un modelo de pesos abiertos de 9.7B, detrás de un servidor de inferencia local, pasó una prueba de humo con una herramienta y después no llamó ninguna herramienta al conectarlo a un agente con 24 esquemas. Al barrer el número de herramientas pareció haber un precipicio entre 8 y 16. No lo había. La petición del agente pesaba 14,095 tokens, la ventana por defecto del servidor era de 4,096, y el servidor recortó el prompt a unos 2,050 tokens sin avisarle al cliente, descartando el inicio del prompt, que es donde van los esquemas de las herramientas. La petición había pedido una ventana de 262,144 tokens mediante una opción que el endpoint compatible con OpenAI no respetó. Con la ventana en 32,768, la misma petición produjo una llamada correcta en 10 de 10 intentos con muestreo por defecto, y el barrido quedó plano en 10 de 10 de 1 a 24 herramientas. Bajar la temperatura no cambió nada en ninguna de las dos ventanas. Un control sintético lo confirma: una sola herramienta con el prompt alargado al tamaño de 24 falla, y acierta, exactamente donde lo hace la petición de 24. Antes de concluir que un modelo pequeño no sabe usar herramientas, revisa el contexto efectivo.
     \end{abstract}
     \vspace{1.2em}
   \end{@twocolumnfalse}
 ]
 
-\section{Dos mediciones del mismo modelo}
+\section{Qué pasó}
 
-La primera prueba es con la que casi cualquier agente empieza: dale al modelo una herramienta, una instrucción clara de usarla, y confirma que lo hace. Un modelo de pesos abiertos de 9.7B pasó esto limpio --- una llamada a herramienta correctamente tipada, cada vez, seguida de un ciclo limpio de reinyección de resultado. Según esa prueba, el modelo es capaz de tool-calling.
+Un modelo de pesos abiertos (Qwen3.5 9B, Q4\_K\_M, 9.7B parámetros) servido con Ollama 0.33.2 en una sola máquina con 17.8 GiB de VRAM se conectó a un framework de agentes de código abierto por el endpoint compatible con OpenAI. Al pedirle que corriera un script, el agente respondió en prosa: escribió el comando en un bloque de código y describió lo que haría, sin llamar la herramienta de terminal que venía en su carga. Una prueba directa con una sola herramienta y el mismo modelo sí pasó.
 
-La segunda prueba usó el mismo modelo exacto, el mismo backend exacto, los mismos parámetros de muestreo, conectado al catálogo real de herramientas desplegado en producción de una plataforma de agente personal: acceso a terminal, operaciones de archivo, búsqueda web, visión, generación de imágenes, voz, automatización de navegador, carga de habilidades, tareas programadas y mensajería, compuestas en catálogos que superan las veinte herramientas individuales. En dos superficies de entrada independientes --- un gateway de chat y una invocación directa por línea de comandos --- el modelo respondió en texto plano absolutamente todas las veces. Los logs propios de ambas superficies mostraron \texttt{api\_calls=1}: el modelo nunca llegó siquiera al turno de llamada a herramienta que requiere una invocación real. Narró un comando de shell como prosa en vez de llamar la herramienta de terminal que estaba justo ahí, en su payload.
+Había tres explicaciones plausibles. El modelo es demasiado pequeño para usar herramientas. Los valores de muestreo por defecto (temperatura 1, penalización de presencia 1.5) lo hacen improvisar. O 24 herramientas son demasiadas para él. Una variante con temperatura 0.1 y sin penalización de presencia no cambió el comportamiento del agente.
 
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{@{}lll@{}}
-\toprule
-& \textbf{Prueba aislada} & \textbf{Prueba de producción} \\
-\midrule
-Herramientas ofrecidas & 1 (sintética) & 20+ (catálogo real) \\
-Llamada intentada & Sí, cada turno & No, cero turnos \\
-\texttt{api\_calls} & 2+ (ciclo real) & 1 (solo texto) \\
-Superficies probadas & 1 & 2, independientes \\
-\bottomrule
-\end{tabular}
-\caption{Mismo modelo, mismo backend, mismos parámetros de muestreo. La única variable que cambió entre columnas es cuántas herramientas había en el payload.}
-\end{table}
+\section{Capturar la petición}
 
-\section{La hipótesis de la temperatura, a medias}
-
-Los parámetros de muestreo por defecto del despliegue --- temperatura 1.0, penalización de presencia 1.5 --- parecían el sospechoso obvio. Esos valores favorecen continuaciones novedosas y de alta entropía, casi lo opuesto a lo que necesita un tool-calling determinista: un modelo que reproduzca confiablemente la llamada estructurada exacta que pide el esquema, no una original.
-
-Se construyó y probó directamente contra la API del modelo una variante del mismo modelo con temperatura baja (0.1) y penalización de presencia en cero. Arregló por completo el caso aislado: una llamada a herramienta correctamente tipada, verificada de punta a punta con un ciclo completo de reinyección de resultado, sin ambigüedad de si fue casualidad. Conectado al mismo catálogo de producción bajo la misma variante de temperatura baja, en las mismas dos superficies independientes, el modelo siguió sin intentar una sola llamada a herramienta.
-
-La hipótesis no estaba equivocada. Estaba incompleta. Los parámetros de muestreo importaron muchísimo para el caso de una herramienta y no explicaron nada del caso de producción. Lo que sea que bloquea el tool-calling una vez que el catálogo crece más allá de cierto umbral, no es principalmente un problema de muestreo para este modelo.
-
-\section{Lo que ya muestra la literatura pública}
-
-La degradación por conteo de herramientas en agentes LLM es un fenómeno documentado, reportado de forma desigual entre tamaños de modelo y diseños de benchmark:
-
-\begin{itemize}
-\item El benchmark ReAct de LangChain encontró que la precisión se mantuvo para \texttt{o1} pero cayó fuerte para \texttt{o3-mini} y casi a cero para \texttt{GPT-4o} al pasar de aproximadamente siete dominios, según el análisis de StackOne sobre el techo de conteo de herramientas.
-\item La evaluación de Maxim AI de cinco modelos sobre catálogos de GitHub y Notion encontró que reducir las herramientas disponibles de 48 a 25 mejoró la precisión de todos los modelos probados, incluyendo Claude Sonnet 4 (66.67\% a 73.33\%).
-\item El reporte propio de Anthropic sobre su Tool Search Tool muestra a Claude Opus 4.5 pasando de 79.5\% a 88.1\% en un benchmark interno al descubrir herramientas bajo demanda en vez de declararlas todas por adelantado --- cifra del proveedor, en su propio benchmark.
-\item TSCG (mayo de 2026) reporta restaurar a Phi-4 14B de 0\% a 84.4\% de precisión con 20 herramientas mediante compilación de esquemas: un modelo mediano topando contra una pared a un conteo de herramientas comparable al medido aquí para un modelo más pequeño.
-\end{itemize}
-
-Un análisis de practicante sobre este cuerpo de trabajo lo dice claro: ningún benchmark público publica limpiamente el eje de decaimiento por tamaño --- fijar el modelo, variar el conteo de herramientas, graficar la precisión. La mayoría de las comparaciones publicadas fijan el conteo de herramientas y varían el modelo, o fijan el modelo y comparan exactamente dos conteos de herramientas elegidos para sostener una afirmación de producto específica, no una curva.
-
-\section{Cómo se ve un precipicio, no una pendiente}
-
-Los benchmarks de arriba describen decaimiento: la precisión baja a medida que sube el conteo de herramientas, pero para modelos capaces de tool-calling en absoluto, rara vez llega a cero. El modelo de 9.7B medido aquí no decayó entre los dos puntos probados --- fue confiable en uno e hizo cero llamadas reales en el otro, bajo dos regímenes de muestreo y dos superficies independientes.
+Apuntamos el framework a un proxy local que guarda el cuerpo de cada petición y responde con texto fijo, de modo que no se ejecutó nada. La petición traía 24 esquemas de herramientas, un prompt de sistema de 18,536 caracteres, un mensaje de usuario de 20 tokens y \texttt{options.num\_ctx = 262144}. Contada en un servidor con ventana suficiente para no recortar, pesaba 14,095 tokens: 9,686 de herramientas, 4,372 de instrucciones del agente, 20 del mensaje y 17 de plantilla de chat (Figura~\ref{fig:bar}).
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[scale=0.82]
-\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (6.6,0) node[right,font=\scriptsize] {conteo de herramientas};
-\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (0,3.4) node[above,font=\scriptsize] {llamadas reales realizadas};
-\draw[barsolid, line width=1.1pt] (0.1,2.9) .. controls (2.0,2.75) and (3.2,2.0) .. (4.1,0.55);
-\draw[barsolid, line width=1.1pt] (4.1,0.55) .. controls (4.9,0.15) and (5.6,0.05) .. (6.4,0.02);
-\node[font=\scriptsize] at (2.1,3.15) {decaimiento típico frontera/mediano};
-\draw[bargray, line width=1.4pt] (0.1,2.9) -- (2.2,2.9);
-\draw[bargray, line width=1.4pt] (2.2,2.9) -- (2.2,0.05);
-\draw[bargray, line width=1.4pt] (2.2,0.05) -- (6.4,0.05);
-\node[font=\scriptsize, text=bargray] at (4.6,2.65) {modelo pequeño, este caso de campo};
-\node[font=\scriptsize] at (2.2,-0.32) {aislado (1 herramienta)};
-\node[font=\scriptsize] at (6.0,-0.32) {producción (20+ herramientas)};
+\begin{tikzpicture}[x=0.00046cm,y=1cm]
+\def\h{0.62}
+\fill[nbblue!85] (0,0) rectangle (9686,\h);
+\fill[nbblue!45] (9686,0) rectangle (14058,\h);
+\fill[nbblue!85] (14058,0) rectangle (14095,\h);
+\fill[nbred!25] (0,-0.62) rectangle (12045,-0.35);
+\fill[nbblue!25] (12045,-0.62) rectangle (14095,-0.35);
+\node[font=\scriptsize,text=white] at (4843,\h/2) {24 esquemas: 9,686};
+\node[font=\tiny] at (11872,\h/2) {instr. 4,372};
+\node[font=\scriptsize,text=nbred,anchor=north] at (5700,-0.68) {descartado: 12,045};
+\node[font=\scriptsize,text=nbblue,anchor=north east] at (14095,-0.68) {queda: 2,050};
+\draw[decorate,decoration={brace,amplitude=3pt}] (0,\h+0.08) -- (14095,\h+0.08) node[midway,above=3pt,font=\scriptsize] {petición: 14,095 tokens};
 \end{tikzpicture}
-\caption{Ilustrativo, no medido en un eje continuo: el patrón documentado de modelos de frontera/medianos es una caída a lo largo de la curva; los dos puntos medidos para el modelo pequeño en este caso son un escalón, no una pendiente.}
+\caption{La petición capturada con la ventana por defecto de 4,096 tokens (a escala). El servidor conserva los primeros tokens y la cola, y los esquemas de herramientas van al inicio.}
+\label{fig:bar}
 \end{figure}
 
-Esta distinción importa para quien decide cuánto peso darle a una prueba de humo que pasó. Un decaimiento gradual se puede presupuestar --- enrutar las llamadas más difíciles a un modelo más grande, recortar el catálogo, aceptar una tasa de error conocida. Un paro categórico no se puede presupuestar igual: pasado el umbral que lo dispara, el modelo pequeño no está "algo menos confiable", no está participando en absoluto del contrato de tool-calling, en silencio, sin que se levante ningún error en ningún lado.
+\section{Reproducirla}
 
-\section{Principio de diseño}
+Reprodujimos la petición capturada contra el mismo modelo, diez intentos por condición (Tabla~\ref{tab:field}).
 
-Certifica la capacidad de tool-calling de un modelo al conteo de herramientas con el que va a correr de verdad en producción, no al conteo que sea más barato de probar con una prueba de humo. Pasar con $N{=}1$ es evidencia sobre $N{=}1$. No es evidencia sobre $N{=}20$, y para un modelo pequeño, los dos pueden ser resultados categóricamente distintos en vez de puntos cercanos de una misma curva.
+\fieldtable
 
-El patrón mínimo en \texttt{patterns/01\_isolated\_vs\_production\_toolset.py} vuelve esto concreto: una rutina de certificación que solo acepta a un modelo como capaz de usar herramientas si demuestra esa capacidad en el conteo real del despliegue, con tamaños de sondeo intermedios registrados para que un precipicio --- a diferencia de un decaimiento --- sea visible en cuanto aparece, no descubierto después en producción.
+Con la ventana por defecto del servidor, de 4,096 tokens, el modelo no hizo ninguna llamada correcta en 20 de 20 intentos, con muestreo por defecto y con temperatura baja. Con 32,768 hizo una en 10 de 10 y en 9 de 10 (el único fallo llamó otra herramienta). La petición con una herramienta pasó en las cuatro condiciones, incluido el muestreo por defecto, así que la impresión previa de que bajar la temperatura la rescataba no se reprodujo con intentos repetidos.
 
-\section*{Nota metodológica}
+El servidor explica la diferencia. Con 4,096 registró \texttt{truncating input prompt} con un límite de 2,050 para un prompt de 14,095 tokens, 50 veces durante la corrida, y ninguna con 32,768. La respuesta no traía error, y su campo de uso reportaba 2,050 tokens de prompt.
 
-Este es un caso de campo único, no un estudio controlado a través de múltiples modelos o catálogos de herramientas. Los dos conteos de herramientas, los parámetros de muestreo y las cifras de \texttt{api\_calls} citadas son mediciones reales del mismo sistema en dos superficies de entrada independientes, no simuladas. No se hace ninguna afirmación causal sobre el mecanismo --- dilución de atención, dilución de instrucciones por un system prompt más largo, o algo específico de esta familia de modelos --- solo que la prueba con conteo de herramientas aislado y la prueba con conteo de producción produjeron resultados categóricamente distintos para el mismo modelo bajo los mismos parámetros.
+Una sonda muestra qué sobrevivió. Con 4,096, al pedirle que repitiera dos marcadores puestos al inicio y al final del mensaje de sistema, el modelo dijo no ver el primero y leyó el segundo; al pedirle que listara sus herramientas, listó nombres de skills que viven en el prompt de sistema, no las funciones. Con 32,768 leyó los dos marcadores y listó los 24 nombres de función. La plantilla de chat del modelo parece poner el bloque de herramientas antes del texto de sistema (no imprimimos el prompt renderizado), lo que encaja con la sonda: el corte quita el principio, así que los esquemas se van primero.
 
-\begin{thebibliography}{9}
-\bibitem{stackone} StackOne. \textit{The Agent Tool Count Ceiling}. stackone.com/blog/agent-tool-count-ceiling.
-\bibitem{maxim} Maxim AI. \textit{Tool Chaos No More: How We're Measuring Model-Tool Accuracy in the Age of MCP}. getmaxim.ai/blog.
-\bibitem{tscg} BenchmarkList. \textit{TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments}. benchmarklist.com.
-\bibitem{hackernoon} HackerNoon. \textit{AI Agents Pick the Wrong Tool More Often as You Add Tools, and Research Shows Why}. hackernoon.com.
-\end{thebibliography}
+\section{Parece un límite\\de herramientas}
+
+La Figura~\ref{fig:sweep} barre el número de herramientas con un prompt de sistema corto, usando subconjuntos de los 24 esquemas reales.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=0.95cm,y=0.27cm]
+\fill[bargray!14] (3.5,0) rectangle (5.55,10.4);
+\node[font=\tiny,text=bargray!70!black,align=center] at (4.5,6.6) {prompt mayor\\que la ventana};
+\draw[-{Latex[length=1.6mm]},line width=0.4pt] (-0.3,0) -- (5.7,0);
+\draw[-{Latex[length=1.6mm]},line width=0.4pt] (-0.3,0) -- (-0.3,11);
+\foreach \i/\k in {0/1,1/2,2/4,3/8,4/16,5/24} {\node[font=\scriptsize] at (\i,-0.8) {\k};}
+\foreach \y in {0,5,10} {\node[font=\scriptsize,anchor=east] at (-0.4,\y) {\y};}
+\node[font=\scriptsize] at (2.7,-2.1) {herramientas ofrecidas};
+\node[font=\scriptsize,rotate=90] at (-1.25,5) {llamadas correctas de 10};
+\sweepBig
+\sweepSmall
+\node[font=\scriptsize,text=nbblue,anchor=west] at (0.05,10.95) {ventana 32,768};
+\node[font=\scriptsize,text=barsolid,anchor=north west] at (3.55,1.25) {ventana 4,096};
+\end{tikzpicture}
+\caption{Llamadas correctas de 10 con cada número de herramientas, mismo modelo, mismos subconjuntos, mismos prompts. Solo cambia la ventana del servidor. Con 4,096 la curva cae entre 8 y 16 herramientas, justo donde el prompt empieza a exceder la ventana; con 32,768 es plana.}
+\label{fig:sweep}
+\end{figure}
+
+Quien se hubiera detenido en la curva oscura habría reportado un precipicio de herramientas. La curva azul es el mismo experimento con una sola configuración distinta.
+
+\section{Control: herramientas contra tamaño}
+
+El barrido anterior cambia a la vez el número de herramientas y el tamaño del prompt. Para separarlos, un arnés público sin datos privados construye herramientas sintéticas de tamaño realista (unos 420 tokens cada una) y compara dos brazos con el mismo total de tokens. El brazo A ofrece $k$ herramientas con un prompt de sistema corto. El brazo B ofrece una sola herramienta y alarga el prompt de sistema con texto neutro hasta el tamaño del brazo A (Tabla~\ref{tab:control}).
+
+Con 4,096 los dos brazos se comportan igual: 10 de 10 mientras el prompt cabe (hasta 3,243 tokens) y 0 de 10 cuando no cabe (6,594 y 9,943 tokens, recortados a 2,050). En esas celdas fallidas el modelo escribió el comando como texto en 34 de 40 intentos e hizo una llamada a herramienta en solo 2 de 40, ninguna correcta. Con 32,768 todas las celdas son 10 de 10. Una herramienta es tan vulnerable como 24 cuando el prompt rebasa la ventana, y 24 herramientas son tan seguras como una mientras no la rebasa. Lo que importa es el tamaño del prompt contra la ventana; las herramientas solo importan por ocupar espacio.
+
+\controltable
+
+\section{Mecanismo y arreglo}
+
+La documentación de Ollama da longitudes de contexto por defecto según la VRAM (4k por debajo de 24 GiB) y dice que la API de OpenAI no tiene forma de fijar el tamaño de contexto de un modelo, por lo que recomienda un Modelfile con \texttt{PARAMETER num\_ctx} \cite{ollama-ctx,ollama-openai}. Nuestro servidor registró una ventana de 4,096 para una petición que traía \texttt{num\_ctx = 262144} en \texttt{options}. Una variante por Modelfile con \texttt{num\_ctx 32768} en un servidor por lo demás por defecto devolvió una llamada correcta en 5 de 5 intentos y sin avisos de recorte. La documentación recomienda al menos 64,000 tokens para agentes; esta sola carga ocupa 14,095 antes de cualquier conversación.
+
+\section{Qué revisar primero}
+
+\begin{itemize}
+\item Compara \texttt{usage.prompt\_tokens} de la respuesta con lo que enviaste. Con 4,096 el servidor reportó 2,050 para una petición de 14,095 tokens y no devolvió error.
+\item Busca \texttt{truncating input prompt} en el log del servidor y lee la columna \texttt{CONTEXT} de \texttt{ollama ps}.
+\item Si pasas por \texttt{/v1}, fija la ventana en el modelo (Modelfile), no en las opciones de la petición.
+\item Certifica el uso de herramientas con la carga de producción, no con la prueba de humo. Pasar con una herramienta es evidencia sobre una herramienta.
+\end{itemize}
+
+\section{Trabajo relacionado}
+
+La degradación por número de herramientas está documentada. En el benchmark ReAct de LangChain, GPT-4o cayó a 2\% en agenda de calendario con siete dominios y Llama-3.3-70B no llamó una herramienta requerida en ningún caso \cite{langchain}. Maxim AI reporta que reducir un conjunto de herramientas de GitHub y Notion de 48 a 25 mejoró a cuatro de cinco modelos, con Claude Sonnet 4 pasando de 66.67\% a 73.33\% \cite{maxim}. Anthropic reporta a Claude Opus 4.5 pasando de 79.5\% a 88.1\% en una evaluación interna de MCP cuando las herramientas se descubren bajo demanda, una cifra del proveedor \cite{anthropic}. Un preprint de mayo de 2026 reporta a Phi-4 14B restaurado de 0\% a 84.4\% con 20 herramientas al compilar los esquemas, en el benchmark del propio autor \cite{tscg}. Esos estudios miden la selección bajo un contexto creciente. Nuestro caso es otro mecanismo: las herramientas nunca llegaron al modelo. No revisamos si alguna corrida citada sufrió recorte; reportar la ventana efectiva permitiría a los lectores saberlo.
+
+\section*{Límites}
+
+Un modelo (Qwen3.5 9B, Q4\_K\_M), una versión de servidor (Ollama 0.33.2), una máquina, una tarea (correr un comando de shell), diez intentos por celda. En el control, el relleno va antes de la instrucción y no probamos relleno después de ella; las herramientas sintéticas son genéricas y la herramienta objetivo queda a dos tercios de la lista. Con diez intentos, 0 de 10 y 10 de 10 se distinguen (intervalos exactos de 95\% de 0--31\% y 69--100\%); las diferencias pequeñas no. El esfuerzo de razonamiento fue medio, como en la petición capturada. No registramos la configuración original del servidor el día de la falla: la reproducción da las mismas respuestas en prosa con la ventana por defecto, lo que es consistente con que las corridas originales se recortaran igual, pero no lo prueba. Las dos páginas de Ollama no coinciden en el valor por defecto (según la VRAM contra 4,096); nuestro servidor registró 4,096 con 17.8 GiB. Una versión anterior de este repositorio llamó a esto un precipicio de herramientas y un colapso categórico de los modelos pequeños. Esa afirmación era incorrecta, y estas mediciones la reemplazan.
+
+{\small\setlength{\itemsep}{0pt}\begin{thebibliography}{9}
+\bibitem{langchain} LangChain. \textit{Benchmarking Single Agent Performance}. 10 de febrero de 2025. blog.langchain.com/react-agent-benchmarking.
+\bibitem{maxim} Maxim AI. \textit{How We're Measuring Model-Tool Accuracy in the Age of MCP}. Julio de 2025. getmaxim.ai/blog.
+\bibitem{anthropic} Anthropic. \textit{Introducing advanced tool use on the Claude Developer Platform}. 24 de noviembre de 2025. anthropic.com/engineering/advanced-tool-use.
+\bibitem{tscg} F. Sakizli. \textit{TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments}. arXiv:2605.04107, mayo de 2026.
+\bibitem{ollama-ctx} Ollama. \textit{Context length}. docs.ollama.com/context-length.
+\bibitem{ollama-openai} Ollama. \textit{OpenAI compatibility}. docs.ollama.com/api/openai-compatibility.
+\end{thebibliography}}
 
 \end{document}

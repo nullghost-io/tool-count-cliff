@@ -1,0 +1,19 @@
+\newcommand{\sweepSmall}{\draw[line width=1.2pt,color=barsolid] (0,10) -- (1,9) -- (2,10) -- (3,9) -- (4,2) -- (5,2);\fill[barsolid] (0,10) circle (2.4pt);\fill[barsolid] (1,9) circle (2.4pt);\fill[barsolid] (2,10) circle (2.4pt);\fill[barsolid] (3,9) circle (2.4pt);\fill[barsolid] (4,2) circle (2.4pt);\fill[barsolid] (5,2) circle (2.4pt);}
+\newcommand{\sweepBig}{\draw[line width=1.2pt,color=nbblue] (0,10) -- (1,10) -- (2,10) -- (3,10) -- (4,10) -- (5,10);\fill[nbblue] (0,10) circle (2.4pt);\fill[nbblue] (1,10) circle (2.4pt);\fill[nbblue] (2,10) circle (2.4pt);\fill[nbblue] (3,10) circle (2.4pt);\fill[nbblue] (4,10) circle (2.4pt);\fill[nbblue] (5,10) circle (2.4pt);}
+\newcommand{\fieldtable}{\begin{table}[H]\centering\footnotesize\setlength{\tabcolsep}{3.5pt}\begin{tabular}{@{}llrrrr@{}}\toprule Window & Sampling & Tools & Tokens in & Correct & 95\% CI \\\midrule
+4,096 & default & 24 & 2,050 & 0/10 & 0--31\% \\
+4,096 & low temp. & 24 & 2,050 & 0/10 & 0--31\% \\
+4,096 & default & 1 & 1,317 & 10/10 & 69--100\% \\
+4,096 & low temp. & 1 & 1,317 & 10/10 & 69--100\% \\
+\midrule
+32,768 & default & 24 & 14,095 & 10/10 & 69--100\% \\
+32,768 & low temp. & 24 & 14,095 & 9/10 & 55--100\% \\
+32,768 & default & 1 & 1,317 & 10/10 & 69--100\% \\
+32,768 & low temp. & 1 & 1,317 & 10/10 & 69--100\% \\
+\bottomrule\end{tabular}\caption{Same model, same request, two server windows. “Correct call” = a call to the right tool with the right command.}\label{tab:field}\end{table}}
+\newcommand{\controltable}{\begin{table}[H]\centering\footnotesize\setlength{\tabcolsep}{3.5pt}\begin{tabular}{@{}rrrrrr@{}}\toprule Tools & Tokens & A, 4,096 & B, 4,096 & A, 32,768 & B, 32,768 \\\midrule
+4 & 1,566 & 10/10 & 10/10 & 10/10 & 10/10 \\
+8 & 3,243 & 10/10 & 10/10 & 10/10 & 10/10 \\
+16 & 6,594 & 0/10 & 0/10 & 10/10 & 10/10 \\
+24 & 9,943 & 0/10 & 0/10 & 10/10 & 10/10 \\
+\bottomrule\end{tabular}\caption{Synthetic control at equal total tokens. A: $k$ tools. B: one tool, system prompt padded to the same size as A. Correct calls out of 10.}\label{tab:control}\end{table}}
