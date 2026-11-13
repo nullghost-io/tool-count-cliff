@@ -1,0 +1,127 @@
+\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=0.85in,columnsep=0.32in]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{float}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+
+\definecolor{boxgreen}{RGB}{224,242,224}
+\definecolor{boxyellow}{RGB}{252,244,214}
+\definecolor{boxred}{RGB}{250,222,222}
+\definecolor{boxgray}{RGB}{238,238,235}
+\definecolor{lineblack}{RGB}{20,20,20}
+\definecolor{barsolid}{RGB}{25,25,25}
+\definecolor{bargray}{RGB}{143,143,137}
+
+\title{\LARGE\bfseries The Tool Count Cliff:\\[2pt] A Small Model's Categorical Collapse Where Larger Models Merely Decay}
+\author{
+  {\large Ricardo Martínez}\\[2pt]
+  {\small Cloud Security \& Applied AI}
+}
+\date{\small November 2026}
+
+\begin{document}
+\twocolumn[
+  \begin{@twocolumnfalse}
+    \maketitle
+    \begin{abstract}
+    \noindent
+    A 9.7B open-weight model, given a single synthetic tool, called it correctly every time and completed a full tool-result round trip. The identical model, same backend, same sampling settings, wired into a real agent's production toolset of over twenty tools, never attempted a real tool call again across repeated turns on two independent surfaces --- it wrote the shell command as prose instead of invoking it. Lowering sampling temperature fixed the isolated case outright and left the production case completely unchanged. Public benchmarks already document tool-count degradation in mid-size and frontier models as a gradual accuracy decline; this field case adds a small model's version of the same axis, which looks less like a decline and more like a step function. The practical consequence: certifying a model's tool-calling at one tool count says nothing reliable about a different tool count, and the gap is not always a slope.
+    \end{abstract}
+    \vspace{1.2em}
+  \end{@twocolumnfalse}
+]
+
+\section{Two Measurements of the Same Model}
+
+The first test is the one almost every agent build starts with: give the model one tool, a clear instruction to use it, and confirm it does. A 9.7B open-weight model passed this cleanly --- a correctly typed tool call, every time, followed by a clean reinjected tool-result round trip. By that test, the model is capable of tool-calling.
+
+The second test used the identical model, the identical backend, the identical sampling settings, wired into a real personal-agent platform's actual deployed toolset: terminal access, file operations, web search, vision, image generation, speech, browser automation, skill loading, scheduled jobs, and messaging, composited into toolsets exceeding twenty individual tools. Across two independent entry surfaces --- a chat gateway and a direct command-line invocation --- the model answered in plain text every single time. Both surfaces' own request logs showed \texttt{api\_calls=1}: the model never even reached the tool-call turn a real invocation requires. It narrated a shell command as prose instead of calling the terminal tool that was sitting right there in its payload.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+& \textbf{Isolated test} & \textbf{Production test} \\
+\midrule
+Tools offered & 1 (synthetic) & 20+ (real toolset) \\
+Tool call attempted & Yes, every turn & No, zero turns \\
+\texttt{api\_calls} & 2+ (real round trip) & 1 (text only) \\
+Surfaces tested & 1 & 2, independently \\
+\bottomrule
+\end{tabular}
+\caption{Same model, same backend, same sampling settings. The only variable that changed between the two columns is how many tools were in the payload.}
+\end{table}
+
+\section{The Temperature Hypothesis, Half Right}
+
+The deployment's default sampling parameters --- temperature 1.0, presence penalty 1.5 --- were the obvious first suspect. Those settings favor novel, high-entropy continuations, which is close to the opposite of what deterministic tool-calling needs: a model that reliably reproduces the exact structured call the schema asks for, not an original one.
+
+A low-temperature (0.1), zero-presence-penalty variant of the same model was built and tested directly against the model-serving API. It fixed the isolated case outright: a correctly typed tool call, verified end to end through a full reinjected-result round trip, with no ambiguity about whether it was a fluke. Wired into the identical production toolset under the identical low-temperature variant, on both of the same two independent surfaces, the model still never attempted a single tool call.
+
+The hypothesis was not wrong. It was incomplete. Sampling settings mattered enormously for the one-tool case and explained none of the production case. Whatever gates tool-calling once the toolset grows past some threshold, it is not primarily a sampling problem for this model.
+
+\section{What the Public Literature Already Shows}
+
+Tool-count degradation in LLM agents is a documented phenomenon, reported unevenly across model sizes and benchmark designs:
+
+\begin{itemize}
+\item LangChain's ReAct benchmark found accuracy held for \texttt{o1} but fell sharply for \texttt{o3-mini} and to near zero for \texttt{GPT-4o} once domain count passed roughly seven, as reported in StackOne's tool-count-ceiling analysis.
+\item Maxim AI's evaluation of five models across GitHub and Notion tool sets found that cutting available tools from 48 to 25 improved accuracy for every model tested, including Claude Sonnet 4 (66.67\% to 73.33\%).
+\item Anthropic's own reporting on its Tool Search Tool shows Claude Opus 4.5 moving from 79.5\% to 88.1\% on an internal benchmark once tools are discovered on demand rather than all declared up front --- a vendor figure, on the vendor's own benchmark.
+\item TSCG (May 2026) reports restoring Phi-4 14B from 0\% to 84.4\% accuracy at 20 tools through schema compilation: a mid-size model hitting a wall at a comparable tool count to the one measured here for a smaller model.
+\end{itemize}
+
+A practitioner analysis of this body of work states the gap plainly: no public benchmark cleanly publishes the size-decay axis --- hold the model fixed, vary tool count, plot accuracy. Most published comparisons hold tool count fixed and vary the model, or hold the model fixed and compare exactly two tool counts chosen to support a specific product claim, not a curve across sizes.
+
+\section{What a Cliff Looks Like, Not a Slope}
+
+The benchmarks above describe decay: accuracy drops as tool count rises, but for models capable of tool-calling at all, it rarely reaches zero. The 9.7B model measured here did not decay between the two tested points --- it was reliable at one and made zero real tool calls at the other, under two sampling regimes and two independent surfaces.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=0.82]
+\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (6.6,0) node[right,font=\scriptsize] {tool count};
+\draw[-{Latex[length=2mm]}, line width=0.5pt] (0,0) -- (0,3.4) node[above,font=\scriptsize] {real tool calls made};
+\draw[barsolid, line width=1.1pt] (0.1,2.9) .. controls (2.0,2.75) and (3.2,2.0) .. (4.1,0.55);
+\draw[barsolid, line width=1.1pt] (4.1,0.55) .. controls (4.9,0.15) and (5.6,0.05) .. (6.4,0.02);
+\node[font=\scriptsize] at (2.1,3.15) {typical frontier/mid-size decay};
+\draw[bargray, line width=1.4pt] (0.1,2.9) -- (2.2,2.9);
+\draw[bargray, line width=1.4pt] (2.2,2.9) -- (2.2,0.05);
+\draw[bargray, line width=1.4pt] (2.2,0.05) -- (6.4,0.05);
+\node[font=\scriptsize, text=bargray] at (4.6,2.65) {small model, this field case};
+\node[font=\scriptsize] at (2.2,-0.32) {isolated (1 tool)};
+\node[font=\scriptsize] at (6.0,-0.32) {production (20+ tools)};
+\end{tikzpicture}
+\caption{Illustrative, not measured on a continuous axis: the documented frontier/mid-size pattern is a decline across the curve; the two points measured for the small model in this case are a step, not a slope.}
+\end{figure}
+
+This distinction matters for anyone deciding how much weight to put on a passed smoke test. A gradual decay can be budgeted for --- route the hardest calls to a bigger model, trim the toolset, accept a known error rate. A categorical stop cannot be budgeted the same way: past whatever threshold triggers it, the small model is not "somewhat less reliable," it is not participating in the tool-calling contract at all, silently, with no error raised anywhere.
+
+\section{Design Principle}
+
+Certify a model's tool-calling capability at the tool count it will actually run with in production, not at whatever count is cheapest to write a smoke test for. A pass at $N{=}1$ is evidence about $N{=}1$. It is not evidence about $N{=}20$, and for a small model, the two can be categorically different outcomes rather than nearby points on a curve.
+
+The minimal pattern in \texttt{patterns/01\_isolated\_vs\_production\_toolset.py} makes this concrete: a certification routine that only accepts a model as tool-capable if it demonstrates that capability at the real deployment's tool count, with intermediate probe sizes recorded so a cliff --- unlike a decay --- is visible as soon as it appears, not discovered later in production.
+
+\section*{Methodological Note}
+
+This is a single field case, not a controlled study across multiple models or tool sets. The two tool counts, the sampling settings, and the \texttt{api\_calls} figures cited are real measurements from the same system across two independent entry surfaces, not simulated. No causal claim is made about mechanism --- attention dilution, instruction dilution from a longer system prompt, or something specific to this model family --- only that the isolated-tool-count test and the production-tool-count test produced categorically different results for the same model under the same settings.
+
+\begin{thebibliography}{9}
+\bibitem{stackone} StackOne. \textit{The Agent Tool Count Ceiling}. stackone.com/blog/agent-tool-count-ceiling.
+\bibitem{maxim} Maxim AI. \textit{Tool Chaos No More: How We're Measuring Model-Tool Accuracy in the Age of MCP}. getmaxim.ai/blog.
+\bibitem{tscg} BenchmarkList. \textit{TSCG: Deterministic Tool-Schema Compilation for Agentic LLM Deployments}. benchmarklist.com.
+\bibitem{hackernoon} HackerNoon. \textit{AI Agents Pick the Wrong Tool More Often as You Add Tools, and Research Shows Why}. hackernoon.com.
+\end{thebibliography}
+
+\end{document}
